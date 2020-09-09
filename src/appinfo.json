@@ -1,0 +1,10 @@
+{
+  "id": "eu.zopi.lgsnapclient",
+  "version": "0.0.1",
+  "vendor": "zopieux",
+  "type": "web",
+  "main": "index.html",
+  "title": "Snapclient",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png"
+}

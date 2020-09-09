@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <style type="text/css">
+    body {
+      background-color: black;
+      padding: 0;
+      margin: 0;
+      position: relative;
+      color: #999;
+      font-family: monospace;
+      font-size: 20pt;
+    }
+
+    #main {
+      position: absolute;
+      transition: all ease-out 250ms;
+      display: grid;
+      grid-row-gap: .1em;
+      grid-column-gap: 1em;
+      grid-template: auto 1fr;
+      grid-template-areas:
+        "logo uri"
+        "logo fft"
+        "logo logs";
+    }
+
+    #uri {
+      margin: 0;
+      padding: 0;
+      grid-area: uri;
+    }
+
+    #logo {
+      margin: 0;
+      padding: 0;
+      min-width: 100px;
+      height: 100%;
+      grid-area: logo;
+      background-image: url(largeIcon.png);
+      background-repeat: no-repeat;
+      background-size: contain;
+      background-position-y: center;
+    }
+
+    #logs {
+      grid-area: logs;
+    }
+
+    .log {
+      width: 100ch;
+      padding: 1rem;
+    }
+
+    #fft {
+      width: 300px;
+      height: 90px;
+      z-index: -1;
+      grid-area: fft;
+    }
+
+    .colorKey {
+      border-radius: 3px;
+      width: 16px;
+      height: 6px;
+      padding: 0 3px;
+      vertical-align: middle;
+    }
+
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+
+<body id="body">
+  <section id="main">
+    <div id="uri"></div>
+    <div id="logo"></div>
+    <canvas id="fft" width="300" height="90"></canvas>
+    <details id="logs">
+      <summary>Logs</summary>
+      <div class="log" id="log"></div>
+      <div class="log" id="debugLog"></div>
+    </details>
+  </section>
+
+  <script type="text/javascript">
+    const backlog = 30;
+    function appendLog(id, backlog, msg) {
+      const el = document.getElementById(id),
+        t = [msg, ...el.innerText.split("\n").slice(0, backlog)];
+      el.innerText = t.join("\n");
+    }
+    window.console.log = function () {
+      const msg = ["LOG", ...arguments].join(" ");
+      appendLog("log", backlog, msg);
+    };
+    window.console.info = function () {
+      const msg = ["INFO", ...arguments].join(" ");
+      appendLog("log", backlog, msg);
+    };
+    window.console.error = function () {
+      const msg = ["ERROR", ...arguments].join(" ");
+      appendLog("log", backlog, msg);
+    };
+    window.console.warn = function () {
+      const msg = ["WARN", ...arguments].join(" ");
+      appendLog("log", backlog, msg);
+    };
+    window.console.debug = function () {
+      const msg = ["DEBUG", ...arguments].join(" ");
+      appendLog("debugLog", 2, msg);
+    };
+  </script>
+
+  <script src="libflac.js" charset="utf-8"></script>
+
+  <script src="snapstream.js" charset="utf-8"></script>
+
+  <script type="text/javascript">
+    const uri = "ws://changeme/stream";
+
+    function createSnapStream() {
+      document.getElementById("uri").innerText = `Playing ${uri}`;
+      const snapstream = new SnapStream(uri);
+      snapstream.onContextReady = function () {
+        const ana = snapstream.ctx.createAnalyser();
+        snapstream.gainNode.disconnect(snapstream.ctx);
+        snapstream.gainNode.connect(ana);
+        ana.connect(snapstream.ctx.destination);
+
+        ana.minDecibels = -90;
+        ana.maxDecibels = -10;
+        ana.smoothingTimeConstant = 0.85;
+        ana.fftSize = 2048;
+        const anaArray = new Uint8Array(ana.fftSize);
+
+        var canvas = document.querySelector("#fft");
+        var ctx = canvas.getContext("2d");
+
+        const grey = .5;
+        const decay = .92;
+        const ampl = canvas.height / 2;
+
+        const draw = function () {
+          requestAnimationFrame(draw);
+          ana.getByteTimeDomainData(anaArray);
+
+          ctx.fillStyle = 'rgb(0, 0, 0)';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          ctx.lineWidth = 2;
+          const mainCol = "253, 191, 7",
+            g = ctx.createLinearGradient(0, 0, canvas.width, 0),
+            initial = `rgba(${mainCol}, 1)`,
+            fade = `rgba(${mainCol}, 0)`;
+          g.addColorStop("0", fade);
+          g.addColorStop(`${1 - decay}`, initial);
+          g.addColorStop(`${decay}`, initial);
+          g.addColorStop("1", fade);
+          ctx.strokeStyle = g;
+
+          ctx.beginPath();
+
+          let sliceWidth = canvas.width * 1.0 / ana.fftSize;
+          let x = 0;
+
+          for (var i = 0; i < ana.fftSize; i++) {
+            const v = anaArray[i] / 128.0;
+            const y = ((v - 1) * ampl / 2) * Math.sin((x / canvas.width) * Math.PI) + ampl;
+            if (i === 0) {
+              ctx.moveTo(x, y);
+            } else {
+              ctx.lineTo(x, y);
+            }
+            x += sliceWidth;
+          }
+          ctx.lineTo(canvas.width, canvas.height / 2)
+          ctx.stroke();
+        };
+        draw();
+      };
+    }
+
+    createSnapStream();
+
+    document.addEventListener("keydown", function (e) {
+      switch (e.keyCode) {
+        case 403: // Red button.
+          window.location.reload();
+          break;
+        case 404: // Green button.
+          document.getElementById("main").classList.toggle("hidden");
+          break;
+        case 405: // Yellow button.
+          document.querySelector("#logs summary").click();
+          break;
+      }
+    });
+
+    // Move text to prevent burn-in.
+    setInterval(function () {
+      const main = document.getElementById("main"),
+        rw = main.getBoundingClientRect().width,
+        rh = main.getBoundingClientRect().height,
+        ww = window.innerWidth,
+        wh = window.innerHeight,
+        px = parseInt(Math.random() * (ww - rw)),
+        py = parseInt(Math.random() * (wh - rh));
+      main.style.top = `${py}px`;
+      main.style.left = `${px}px`;
+    }, 10000);
+  </script>
+
+</body>
+
+</html>
